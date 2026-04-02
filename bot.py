@@ -142,13 +142,26 @@ async def get_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # =====================
-# SUMMARY
+# SUMMARY (FIXED)
 # =====================
 async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     records = sheet.get_all_records()
 
-    income = sum(int(r["Amount"]) for r in records if r["Type"] == "income")
-    expense = sum(int(r["Amount"]) for r in records if r["Type"] == "expense")
+    income = 0
+    expense = 0
+
+    for r in records:
+        try:
+            amt = int(r.get("Amount", 0))
+            type_val = str(r.get("Type", "")).strip().lower()
+
+            if type_val == "income":
+                income += amt
+            elif type_val == "expense":
+                expense += amt
+        except:
+            continue
+
     balance = income - expense
 
     await update.message.reply_text(
@@ -157,19 +170,34 @@ async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # =====================
-# PENDING
+# PENDING (FIXED)
 # =====================
 async def pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
     records = sheet.get_all_records()
-    pending_list = [r for r in records if r["Status"] == "pending"]
+
+    pending_list = []
+
+    for r in records:
+        status_val = str(r.get("Status", "")).strip().lower()
+
+        if status_val == "pending":
+            pending_list.append(r)
 
     if not pending_list:
-        await update.message.reply_text("No pending 🎉", reply_markup=get_menu())
+        await update.message.reply_text(
+            "No pending 🎉",
+            reply_markup=get_menu()
+        )
         return
 
     msg = "📌 Pending:\n"
+
     for r in pending_list:
-        msg += f"{r['Name']} - ₹{r['Amount']} ({r['Category']})\n"
+        name = r.get("Name", "Unknown")
+        amount = r.get("Amount", "0")
+        category = r.get("Category", "-")
+
+        msg += f"{name} - ₹{amount} ({category})\n"
 
     await update.message.reply_text(msg, reply_markup=get_menu())
 
