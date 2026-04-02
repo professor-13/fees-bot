@@ -3,6 +3,8 @@ import logging
 import threading
 from datetime import datetime
 
+print("🚀 Starting bot...")
+
 # Flask (to keep Render alive)
 from flask import Flask
 
@@ -23,8 +25,10 @@ from telegram.ext import (
 TOKEN = os.getenv("TOKEN")
 SHEET_NAME = "Fees Tracker"
 
+print("TOKEN Loaded:", "YES" if TOKEN else "NO")
+
 # ================================
-# 🌐 DUMMY WEB SERVER (Render Fix)
+# 🌐 DUMMY WEB SERVER
 # ================================
 web_app = Flask(__name__)
 
@@ -38,27 +42,36 @@ def run_web():
 # ================================
 # 📊 GOOGLE SHEETS SETUP
 # ================================
-scope = [
-    "https://spreadsheets.google.com/feeds",
-    "https://www.googleapis.com/auth/drive"
-]
+try:
+    print("🔗 Connecting to Google Sheets...")
 
-creds = ServiceAccountCredentials.from_json_keyfile_name(
-    "credentials.json", scope
-)
+    scope = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive"
+    ]
 
-client = gspread.authorize(creds)
-sheet = client.open(SHEET_NAME).sheet1
+    creds = ServiceAccountCredentials.from_json_keyfile_name(
+        "credentials.json", scope
+    )
+
+    client = gspread.authorize(creds)
+    sheet = client.open(SHEET_NAME).sheet1
+
+    print("✅ Google Sheets connected!")
+
+except Exception as e:
+    print("❌ Google Sheets ERROR:", e)
+    raise e
 
 # ================================
-# 🧠 STATES
+# STATES
 # ================================
 NAME, AMOUNT, CATEGORY, STATUS = range(4)
 
 logging.basicConfig(level=logging.INFO)
 
 # ================================
-# 🚀 START MENU
+# START MENU
 # ================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [["➕ Add Entry", "📊 Summary", "📌 Pending"]]
@@ -68,7 +81,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # ================================
-# ➕ ADD ENTRY FLOW
+# ADD ENTRY FLOW
 # ================================
 async def add_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Enter Name:")
@@ -108,7 +121,11 @@ async def get_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status = context.user_data["status"]
     date = datetime.now().strftime("%Y-%m-%d")
 
-    sheet.append_row([name, amount, category, status, date])
+    try:
+        sheet.append_row([name, amount, category, status, date])
+        print("✅ Row added:", name, amount)
+    except Exception as e:
+        print("❌ Sheet Write Error:", e)
 
     await update.message.reply_text(
         f"✅ Added:\n{name} | ₹{amount} | {category} | {status}"
@@ -117,7 +134,7 @@ async def get_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ================================
-# 📊 SUMMARY
+# SUMMARY
 # ================================
 async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     records = sheet.get_all_records()
@@ -137,7 +154,7 @@ async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # ================================
-# 📌 PENDING
+# PENDING
 # ================================
 async def pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
     records = sheet.get_all_records()
@@ -154,43 +171,50 @@ async def pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg)
 
 # ================================
-# ❌ CANCEL
+# CANCEL
 # ================================
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Cancelled.")
     return ConversationHandler.END
 
 # ================================
-# 🧠 MAIN
+# MAIN
 # ================================
 def main():
-    # Run dummy server for Render
-    threading.Thread(target=run_web).start()
+    try:
+        print("🚀 Starting services...")
 
-    # Telegram bot
-    app_bot = ApplicationBuilder().token(TOKEN).build()
+        # Start dummy server
+        threading.Thread(target=run_web).start()
 
-    conv_handler = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("➕ Add Entry"), add_entry)],
-        states={
-            NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
-            AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_amount)],
-            CATEGORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_category)],
-            STATUS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_status)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-    )
+        # Telegram bot
+        app_bot = ApplicationBuilder().token(TOKEN).build()
 
-    app_bot.add_handler(CommandHandler("start", start))
-    app_bot.add_handler(MessageHandler(filters.Regex("📊 Summary"), summary))
-    app_bot.add_handler(MessageHandler(filters.Regex("📌 Pending"), pending))
-    app_bot.add_handler(conv_handler)
+        conv_handler = ConversationHandler(
+            entry_points=[MessageHandler(filters.Regex("➕ Add Entry"), add_entry)],
+            states={
+                NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
+                AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_amount)],
+                CATEGORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_category)],
+                STATUS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_status)],
+            },
+            fallbacks=[CommandHandler("cancel", cancel)],
+        )
 
-    print("Bot running...")
-    app_bot.run_polling()
+        app_bot.add_handler(CommandHandler("start", start))
+        app_bot.add_handler(MessageHandler(filters.Regex("📊 Summary"), summary))
+        app_bot.add_handler(MessageHandler(filters.Regex("📌 Pending"), pending))
+        app_bot.add_handler(conv_handler)
+
+        print("✅ Bot is running now...")
+        app_bot.run_polling()
+
+    except Exception as e:
+        print("❌ BOT ERROR:", e)
+        raise e
 
 # ================================
-# ▶️ RUN
+# RUN
 # ================================
 if __name__ == "__main__":
     main()
