@@ -4,7 +4,6 @@ import threading
 from datetime import datetime
 
 from flask import Flask
-
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -35,15 +34,14 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(
 client = gspread.authorize(creds)
 sheet = client.open(SHEET_NAME).sheet1
 
-# Headers
-headers = sheet.row_values(1)
-if not headers:
+# Add headers if empty
+if not sheet.row_values(1):
     sheet.append_row(["Name", "Amount", "Category", "Type", "Status", "Date"])
 
 print("✅ Google Sheets connected")
 
 # =====================
-# FLASK
+# FLASK (KEEP ALIVE)
 # =====================
 app_web = Flask(__name__)
 
@@ -129,23 +127,23 @@ async def get_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # =====================
-# SUMMARY
+# SUMMARY (FIXED)
 # =====================
 async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    records = sheet.get_all_records()
+    data = sheet.get_all_values()
 
     income = 0
     expense = 0
 
-    for r in records:
+    for row in data[1:]:
         try:
-            amt = int(r.get("Amount", 0))
-            t = str(r.get("Type", "")).lower()
+            amount = int(row[1])
+            type_val = row[3].strip().lower()
 
-            if t == "income":
-                income += amt
-            elif t == "expense":
-                expense += amt
+            if type_val == "income":
+                income += amount
+            elif type_val == "expense":
+                expense += amount
         except:
             continue
 
@@ -155,45 +153,53 @@ async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # =====================
-# PENDING
+# PENDING (FIXED)
 # =====================
 async def pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    records = sheet.get_all_records()
+    data = sheet.get_all_values()
 
-    pending_list = [r for r in records if str(r.get("Status", "")).lower() == "pending"]
+    pending_list = []
+
+    for row in data[1:]:
+        try:
+            if row[4].strip().lower() == "pending":
+                pending_list.append(row)
+        except:
+            continue
 
     if not pending_list:
         await update.message.reply_text("No pending 🎉", reply_markup=get_menu())
         return
 
     msg = "📌 Pending:\n"
-    for r in pending_list:
-        msg += f"{r['Name']} - ₹{r['Amount']} ({r['Category']})\n"
+
+    for row in pending_list:
+        msg += f"{row[0]} - ₹{row[1]} ({row[2]})\n"
 
     await update.message.reply_text(msg, reply_markup=get_menu())
 
 # =====================
-# MONTHLY REPORT
+# MONTHLY REPORT (FIXED)
 # =====================
 async def monthly_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    records = sheet.get_all_records()
+    data = sheet.get_all_values()
 
     current_month = datetime.now().strftime("%Y-%m")
 
     income = 0
     expense = 0
 
-    for r in records:
+    for row in data[1:]:
         try:
-            date = str(r.get("Date", ""))
+            date = row[5]
             if current_month in date:
-                amt = int(r.get("Amount", 0))
-                t = str(r.get("Type", "")).lower()
+                amount = int(row[1])
+                type_val = row[3].strip().lower()
 
-                if t == "income":
-                    income += amt
-                elif t == "expense":
-                    expense += amt
+                if type_val == "income":
+                    income += amount
+                elif type_val == "expense":
+                    expense += amount
         except:
             continue
 
