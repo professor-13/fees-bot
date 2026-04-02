@@ -21,38 +21,26 @@ TOKEN = os.getenv("TOKEN")
 SHEET_NAME = "Fees Tracker"
 
 # =====================
-# GOOGLE AUTH (ENV BASED)
+# GOOGLE AUTH
 # =====================
 scope = [
     "https://spreadsheets.google.com/feeds",
     "https://www.googleapis.com/auth/drive"
 ]
 
-try:
-    creds_json = os.getenv("GOOGLE_CREDENTIALS")
+creds_json = os.getenv("GOOGLE_CREDENTIALS")
+creds_dict = json.loads(creds_json)
 
-    if not creds_json:
-        raise Exception("GOOGLE_CREDENTIALS missing")
+creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+client = gspread.authorize(creds)
+sheet = client.open(SHEET_NAME).sheet1
 
-    creds_dict = json.loads(creds_json)
+# Add headers if not present
+headers = sheet.row_values(1)
+if not headers:
+    sheet.append_row(["Name", "Amount", "Category", "Type", "Status", "Date"])
 
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(
-        creds_dict, scope
-    )
-
-    client = gspread.authorize(creds)
-    sheet = client.open(SHEET_NAME).sheet1
-
-    # ✅ Add headers if not present
-    headers = sheet.row_values(1)
-    if not headers:
-        sheet.append_row(["Name", "Amount", "Category", "Status", "Date"])
-
-    print("✅ Google Sheets connected")
-
-except Exception as e:
-    print("❌ GOOGLE ERROR:", e)
-    raise e
+print("✅ Google Sheets connected")
 
 # =====================
 # FLASK (KEEP ALIVE)
@@ -69,10 +57,10 @@ def run_web():
 # =====================
 # STATES
 # =====================
-NAME, AMOUNT, CATEGORY, STATUS = range(4)
+NAME, AMOUNT, TYPE, CATEGORY, STATUS = range(5)
 
 # =====================
-# COMMON MENU
+# MENU
 # =====================
 def get_menu():
     return ReplyKeyboardMarkup(
@@ -84,17 +72,21 @@ def get_menu():
 # HANDLERS
 # =====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Choose option:",
-        reply_markup=get_menu()
-    )
+    await update.message.reply_text("Choose option:", reply_markup=get_menu())
 
 async def add_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Enter Name:")
     return NAME
 
 async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["name"] = update.message.text
+    text = update.message.text
+
+    # Ignore menu buttons
+    if text in ["➕ Add Entry", "📊 Summary", "📌 Pending"]:
+        await update.message.reply_text("Please enter a valid name:")
+        return NAME
+
+    context.user_data["name"] = text
     await update.message.reply_text("Enter Amount:")
     return AMOUNT
 
@@ -105,7 +97,17 @@ async def get_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Enter valid number")
         return AMOUNT
 
-    keyboard = [["academy", "jersey", "match"]]
+    keyboard = [["income", "expense"]]
+    await update.message.reply_text(
+        "Select Type:",
+        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    )
+    return TYPE
+
+async def get_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["type"] = update.message.text
+
+    keyboard = [["academy", "jersey", "match", "salary"]]
     await update.message.reply_text(
         "Select Category:",
         reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -125,14 +127,15 @@ async def get_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = context.user_data["name"]
     amount = context.user_data["amount"]
+    type_ = context.user_data["type"]
     category = context.user_data["category"]
     status = update.message.text
     date = datetime.now().strftime("%Y-%m-%d")
 
-    sheet.append_row([name, amount, category, status, date])
+    sheet.append_row([name, amount, category, type_, status, date])
 
     await update.message.reply_text(
-        f"✅ Entry saved!\n\nChoose next option:",
+        "✅ Entry saved!\n\nChoose next option:",
         reply_markup=get_menu()
     )
 
@@ -144,11 +147,12 @@ async def get_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     records = sheet.get_all_records()
 
-    paid = sum(int(r["Amount"]) for r in records if r["Status"] == "paid")
-    pending = sum(int(r["Amount"]) for r in records if r["Status"] == "pending")
+    income = sum(int(r["Amount"]) for r in records if r["Type"] == "income")
+    expense = sum(int(r["Amount"]) for r in records if r["Type"] == "expense")
+    balance = income - expense
 
     await update.message.reply_text(
-        f"💰 Paid: ₹{paid}\n⏳ Pending: ₹{pending}",
+        f"💰 Income: ₹{income}\n💸 Expense: ₹{expense}\n📊 Balance: ₹{balance}",
         reply_markup=get_menu()
     )
 
@@ -160,10 +164,7 @@ async def pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pending_list = [r for r in records if r["Status"] == "pending"]
 
     if not pending_list:
-        await update.message.reply_text(
-            "No pending 🎉",
-            reply_markup=get_menu()
-        )
+        await update.message.reply_text("No pending 🎉", reply_markup=get_menu())
         return
 
     msg = "📌 Pending:\n"
@@ -185,6 +186,7 @@ def main():
         states={
             NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
             AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_amount)],
+            TYPE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_type)],
             CATEGORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_category)],
             STATUS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_status)],
         },
