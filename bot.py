@@ -43,6 +43,11 @@ try:
     client = gspread.authorize(creds)
     sheet = client.open(SHEET_NAME).sheet1
 
+    # ✅ Add headers if not present
+    headers = sheet.row_values(1)
+    if not headers:
+        sheet.append_row(["Name", "Amount", "Category", "Status", "Date"])
+
     print("✅ Google Sheets connected")
 
 except Exception as e:
@@ -67,13 +72,21 @@ def run_web():
 NAME, AMOUNT, CATEGORY, STATUS = range(4)
 
 # =====================
+# COMMON MENU
+# =====================
+def get_menu():
+    return ReplyKeyboardMarkup(
+        [["➕ Add Entry", "📊 Summary", "📌 Pending"]],
+        resize_keyboard=True
+    )
+
+# =====================
 # HANDLERS
 # =====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [["➕ Add Entry", "📊 Summary", "📌 Pending"]]
     await update.message.reply_text(
         "Choose option:",
-        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        reply_markup=get_menu()
     )
 
 async def add_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -86,7 +99,11 @@ async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return AMOUNT
 
 async def get_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["amount"] = int(update.message.text)
+    try:
+        context.user_data["amount"] = int(update.message.text)
+    except:
+        await update.message.reply_text("❌ Enter valid number")
+        return AMOUNT
 
     keyboard = [["academy", "jersey", "match"]]
     await update.message.reply_text(
@@ -114,30 +131,46 @@ async def get_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     sheet.append_row([name, amount, category, status, date])
 
-    await update.message.reply_text("✅ Entry saved!")
+    await update.message.reply_text(
+        f"✅ Entry saved!\n\nChoose next option:",
+        reply_markup=get_menu()
+    )
+
     return ConversationHandler.END
 
+# =====================
+# SUMMARY
+# =====================
 async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     records = sheet.get_all_records()
 
     paid = sum(int(r["Amount"]) for r in records if r["Status"] == "paid")
     pending = sum(int(r["Amount"]) for r in records if r["Status"] == "pending")
 
-    await update.message.reply_text(f"💰 Paid: ₹{paid}\n⏳ Pending: ₹{pending}")
+    await update.message.reply_text(
+        f"💰 Paid: ₹{paid}\n⏳ Pending: ₹{pending}",
+        reply_markup=get_menu()
+    )
 
+# =====================
+# PENDING
+# =====================
 async def pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
     records = sheet.get_all_records()
     pending_list = [r for r in records if r["Status"] == "pending"]
 
     if not pending_list:
-        await update.message.reply_text("No pending 🎉")
+        await update.message.reply_text(
+            "No pending 🎉",
+            reply_markup=get_menu()
+        )
         return
 
     msg = "📌 Pending:\n"
     for r in pending_list:
-        msg += f"{r['Name']} - ₹{r['Amount']}\n"
+        msg += f"{r['Name']} - ₹{r['Amount']} ({r['Category']})\n"
 
-    await update.message.reply_text(msg)
+    await update.message.reply_text(msg, reply_markup=get_menu())
 
 # =====================
 # MAIN
